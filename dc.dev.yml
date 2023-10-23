@@ -1,0 +1,43 @@
+version: "3.9"
+
+x-php-common: &x-php-common
+  volumes:
+    - ${APP_DIR}:${APP_DIR_MAP}
+
+
+services:
+  php-cli:
+    <<: *x-php-common
+    build:
+      target: dev-cli
+
+  link-consumer:
+    <<: *x-php-common
+    build:
+      target: dev-worker
+
+  link-publisher:
+    <<: *x-php-common
+    build:
+      target: dev-worker
+
+  php-fpm:
+    <<: *x-php-common
+    build:
+      target: dev-fpm
+
+  mariadb:
+    ports:
+      - "${MARIADB_EXTERNAL_PORT}:${MARIADB_PORT}"
+
+  clickhouse:
+    ports:
+      - "${CLICKHOUSE_EXTERNAL_PORT}:8123"
+
+  rabbitmq:
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_ADMIN_PORT}:15672"
+
+
+

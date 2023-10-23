@@ -1,0 +1,46 @@
+{% macro bytesToSize(bytes) %}
+    {% set kilobyte = 1024 %}
+    {% set megabyte = kilobyte * 1024 %}
+    {% set gigabyte = megabyte * 1024 %}
+    {% set terabyte = gigabyte * 1024 %}
+
+    {% if bytes < kilobyte %}
+        {{ bytes ~ ' B' }}
+    {% elseif bytes < megabyte %}
+        {{ (bytes / kilobyte)|number_format(2, '.') ~ ' KiB' }}
+    {% elseif bytes < gigabyte %}
+        {{ (bytes / megabyte)|number_format(2, '.') ~ ' MiB' }}
+    {% elseif bytes < terabyte %}
+        {{ (bytes / gigabyte)|number_format(2, '.') ~ ' GiB' }}
+    {% else %}
+        {{ (bytes / terabyte)|number_format(2, '.') ~ ' TiB' }}
+    {% endif %}
+{% endmacro %}
+
+{% macro stats(data) %}
+
+    {% import _self as format %}
+
+    {% if data %}
+        <table>
+            <tr>
+                <th>Minute</th>
+                <th>Req Count</th>
+                <th>Content Len Avg</th>
+                <th>The First Req</th>
+                <th>The Last Req</th>
+            </tr>
+            {% for i in data %}
+                <tr>
+                    <td>{{ i.minute }}</td>
+                    <td>{{ i.count }}</td>
+                    <td>{{ format.bytesToSize(i.avg) }}</td>
+                    <td>{{ i.min }}</td>
+                    <td>{{ i.max }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% else %}
+        <p>There is no stats yet. Try to check it out a few minutes later.</p>
+    {% endif %}
+{% endmacro %}

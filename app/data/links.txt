@@ -1,0 +1,10 @@
+https://ya.ru
+https://google.ru
+https://habr.com/ru/articles
+https://www.reddit.com
+https://news.ycombinator.com
+https://stackoverflow.com
+https://stackexchange.com
+https://css-tricks.com
+https://math.stackexchange.com
+https://unix.stackexchange.com

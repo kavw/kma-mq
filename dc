@@ -1,0 +1,221 @@
+#!/bin/sh
+set -eu
+
+copy()
+{
+    if [ ! -f "$2" ]; then
+        echo "$1 -> $2"
+        cp "$1" "$2"
+    fi
+}
+
+env_file()
+{
+    echo "$1/app/var/.env"
+}
+
+mode_file()
+{
+    echo "$1/app/var/.mode"
+}
+
+get_mode()
+{
+    file=$(mode_file "$1")
+    cat "$file" 2> /dev/null || echo prod
+}
+
+mode()
+{
+    res=$(get_mode "$1")
+    echo "Current mode: $res"
+}
+
+switch_to_mode()
+{
+    file=$(mode_file "$1")
+    echo "$2" > "$file"
+    replace_env_var "$1" "APP_ENV" "$2"
+    mode "$1"
+}
+
+replace_env_var()
+{
+    file=$(env_file "$1")
+    sed -i -E "s#^$2=.*#$2=$3#" "$file"
+}
+
+clean()
+{
+    rm -i
+}
+
+env()
+{
+    echo "Copying env files ..."
+    cnt=0
+    for i in "$1"/app/env/example*; do
+        target=$(echo "$i" | sed 's/example//')
+        res=$(copy "$i" "$target")
+        if [ "$res" !=  "" ]; then
+            echo "$res"
+            cnt=$((cnt+1));
+        fi
+    done
+
+    file=$(env_file "$1")
+    res=$(copy "$1/example.env" "$file")
+    if [ "$res" !=  "" ]; then
+        echo "$res"
+        cnt=$((cnt+1));
+    fi
+
+    if [ "$cnt" -eq 0 ]; then
+        echo "There is no files to be copied"
+    fi
+}
+
+dc()
+{
+    d="$1"
+    shift
+
+    env_file=$(env_file "$d")
+    compose_files="-f $d/dc.yml"
+
+    m=$(get_mode "$d")
+    if [ "$m" != "prod" ]; then
+        dev_file="$d/dc.dev.yml"
+        compose_files="$compose_files -f $dev_file"
+    fi
+
+    cmd="docker-compose --env-file $env_file $compose_files $*"
+    echo "$cmd"
+    eval "$cmd"
+}
+
+run()
+{
+    echo "Run the app ..."
+    env "$1"
+    res=$(dc "$1" ps | grep -E "^php-web-app") || res=""
+    if [ "$res" != "" ]; then
+        echo "The app is already running"
+        exit 0
+    fi
+    env "$1"
+    port=$(choose_default_port "HTTP_PORT_NGINX_FPM" 22080)
+    replace_env_var "$1" "HTTP_PORT_NGINX_FPM" "$port"
+    dc "$1" build
+    dc "$1" run --rm php-cli composer install
+    dc "$1" up -d
+    open_url "http://localhost:$port"
+}
+
+open_url()
+{
+    msg="Please, try to open $1"
+    os=$(machine)
+    case "$os" in
+        Linux) xdg-open "$1" 2> /dev/null || printf "\n%s\n\n" "$msg" ;;
+        Mac)   open "$1"     2> /dev/null || printf "\n%s\n\n" "$msg" ;;
+        *)     printf "\n%s\n\n" "$msg" ;;
+    esac
+}
+
+choose_default_port()
+{
+    default_port="$2"
+    while :; do
+        tcp=$(timeout 1 bash -c "</dev/tcp/localhost/$default_port" 2> /dev/null || echo "1")
+        udp=$(timeout 1 bash -c "</dev/tcp/localhost/$default_port" 2> /dev/null || echo "1")
+
+        if [ "$tcp" = "1" ] && [ "$udp" = "1" ]; then
+            break
+        else
+            default_port=$((default_port+1))
+            if [ "$default_port" -gt 65535 ]; then
+                printf "Can't choose free port\n" 1>&2
+                exit 1
+            fi
+        fi
+    done
+    echo "$default_port"
+}
+
+choose_port_interactively()
+{
+    default_port=$(choose_default_port "$1" "$2")
+    while :; do
+        printf "Please, choose a port for the environment variable %s (%s):" "$1" "$default_port"
+        read -r port
+        if [ "$port" = "" ]; then
+            port="$default_port"
+        fi
+
+        err="It should be a positive integer between 1 and 65535"
+        case "$port" in
+            ''|*[!0-9]*) echo "$err" ;;
+            *)
+                if [ "$port" -gt 0 ] && [ "$port" -lt 65535 ]; then
+
+                    tcp=$(timeout 1 bash -c "</dev/tcp/localhost/$port" 2> /dev/null || echo "1")
+                    udp=$(timeout 1 bash -c "</dev/tcp/localhost/$port" 2> /dev/null || echo "1")
+
+                    if [ "$tcp" = "1" ] && [ "$udp" = "1" ]; then
+                        break
+                    else
+                        echo "Port $port is busy"
+                    fi
+                else
+                    echo "$err"
+                fi
+            ;;
+        esac
+    done
+
+    echo "$port"
+}
+
+machine()
+{
+    res="$(uname -s)"
+    case "${res}" in
+        Linux*)   machine=Linux;;
+        Darwin*)  machine=Mac;;
+        CYGWIN*)  machine=Cygwin;;
+        MINGW*)   machine=MinGw;;
+        MSYS_NT*) machine=Git;;
+        *)        machine="UNKNOWN: ${res}"
+    esac
+    echo "${machine}"
+}
+
+main()
+{
+    # shellcheck disable=SC1007
+    script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+    if [ "$#" -eq 0 ]; then
+        run "$script_dir"
+        exit $?
+    fi
+
+    cmd="$1"
+    shift
+
+    case "$cmd" in
+        env)  env  "$script_dir" ;;
+        help) dc   "$script_dir" ;;
+        mode) mode "$script_dir" ;;
+
+        dev)  switch_to_mode "$script_dir" "dev"  ;;
+        prod) switch_to_mode "$script_dir" "prod" ;;
+
+        cli|sh|shell) dc "$script_dir" run --rm php-cli ash;;
+        *)      dc  "$script_dir" "$cmd" "$@" ;;
+    esac
+    exit $?
+}
+
+main "$@"

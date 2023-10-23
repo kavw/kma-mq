@@ -1,0 +1,157 @@
+version: "3.9"
+
+x-user-args: &x-user-args
+  APP_USER: ${APP_USER}
+  APP_UID: ${APP_UID}
+  APP_GID: ${APP_GID}
+
+services:
+  nginx-fpm:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+      args:
+        APP_ROOT_PATH: ${APP_DIR_MAP}/public
+        APP_FASTCGI_PASS: php-fpm
+        APP_ENV: ${APP_ENV}
+    volumes:
+      - ${APP_DIR}:${APP_DIR_MAP}
+    environment:
+      PS1: ${PS1_EX}
+      PS1_SRV_NAME: nginx-fpm
+    ports:
+      - ${HTTP_PORT_NGINX_FPM}:80
+    depends_on:
+      - php-fpm
+
+  php-cli: &php-cli
+    build: &php-cli-build
+      context: ./
+      dockerfile: ./docker/php/Dockerfile
+      target: prod-cli
+      args: &php-cli-args
+        <<: *x-user-args
+        APP_TIMEZONE: ${APP_TIMEZONE}
+        PHP_VER: ${PHP_VER}
+        PHP_SAPI: zts
+        APP_DIR: ${APP_DIR}
+        APP_DIR_MAP: ${APP_DIR_MAP}
+    working_dir: ${APP_DIR_MAP}
+    env_file:
+      - ${APP_DIR}/var/.env
+    environment:
+      PS1: ${PS1_EX}
+      PS1_SRV_NAME: php-fpm
+      APP_ENV: ${APP_ENV}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  link-consumer:
+    <<: *php-cli
+    build:
+      <<: *php-cli-build
+      target: prod-worker
+      args:
+        <<: *php-cli-args
+        WORKER_CMD: php /app/cli/link-consumer.php
+        WORKER_PROGRAM: link-consumer
+    environment:
+      PS1: ${PS1_EX}
+      PS1_SRV_NAME: link-consumer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  link-publisher:
+    <<: *php-cli
+    build:
+      <<: *php-cli-build
+      target: prod-worker
+      args:
+        <<: *php-cli-args
+        WORKER_CMD: php /app/cli/link-publisher.php
+        WORKER_PROGRAM: link-publisher
+    environment:
+      PS1: ${PS1_EX}
+      PS1_SRV_NAME: link-publisher
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  php-fpm:
+    <<: *php-cli
+    build:
+      <<: *php-cli-build
+      target: prod-fpm
+      args:
+        <<: *php-cli-args
+        PHP_SAPI: fpm
+    environment:
+      PS1: ${PS1_EX}
+      PS1_SRV_NAME: php-zts
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  mariadb:
+    build:
+      context: ./docker/mariadb
+      args:
+        <<: *x-user-args
+        MARIADB_DATABASE: ${MARIADB_DATABASE}
+        MARIADB_USER: ${MARIADB_USER}
+        MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+        MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+        PS1_EX: ${PS1_EX}
+    volumes:
+      - ${APP_DIR}/var/mariadb:/var/lib/mysql
+    env_file:
+      - ${APP_DIR}/var/.env
+    environment:
+      PS1_SRV_NAME: mariadb
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh" ,"--connect", "--innodb_initialized" ]
+      timeout: 20s
+      retries: 10
+
+  clickhouse:
+    build:
+      context: ./docker/clickhouse
+      args:
+        <<: *x-user-args
+        MARIADB_HOST: ${MARIADB_HOST}
+        MARIADB_PORT: ${MARIADB_PORT}
+        MARIADB_DATABASE: ${MARIADB_DATABASE}
+        MARIADB_USER: ${MARIADB_USER}
+        MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    volumes:
+      - ./app/var/clickhouse:/var/lib/clickhouse
+      - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
+    environment:
+      PS1: ${PS1_EX}
+      PS1_SRV_NAME: clickhouse
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/?query=SELECT%201 || exit 1
+
+  rabbitmq:
+    image: rabbitmq:3.12.6-management
+    volumes:
+      - ${APP_DIR}/var/rabbitmq:/var/lib/rabbitmq
+    environment:
+      PS1_SRV_NAME: rabbtimq
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: |
+        -rabbit log_levels [{connection,error},{default,error}] disk_free_limit 2147483648
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+

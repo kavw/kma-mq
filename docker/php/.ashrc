@@ -1,0 +1,5 @@
+alias exit='exit 0'
+alias q='exit 0'
+
+alias ll='ls -ahl'
+alias c='composer'

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="60">
+    <title>KMA Test</title>
+    <style media="all">
+        :root {
+            --cell-padding: .5em;
+            --table-collor: #C3C3C3
+        }
+
+        body {
+            font-family:'Courier New',Courier,monospace
+        }
+
+        table {
+            border-width: 1px 1px 0 1px;
+            border-style: solid;
+            border-color: var(--table-collor);
+            border-spacing: 0;
+        }
+
+        table th {
+            text-align: left;
+            padding: var(--cell-padding);
+            background: var(--table-collor);
+            border-bottom: 1px solid var(--table-collor);
+            border-spacing: 0;
+        }
+
+        table td {
+            text-align: left;
+            padding: var(--cell-padding);
+            border-bottom: 1px solid var(--table-collor);
+            border-spacing: 0;
+        }
+
+        table tr:hover td {
+            background: #E9DEDE;
+        }
+    </style>
+</head>
+
+<body>
+<h1>KMA Test</h1>
+<hr />
+
+
+{% import "macro/statsTable.twig" as table %}
+
+<h2>MariaDB Stats</h2>
+{{ table.stats(mariaDbStats) }}
+
+<h2>ClickHouse Stats</h2>
+{{ table.stats(clickhouseStats) }}
+
+</body>
+</html>
